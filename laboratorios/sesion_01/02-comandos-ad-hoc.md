@@ -24,10 +24,10 @@ http://direccion_IP_de_la_VM:8443
 Crea un archivo de texto llamado `inventario.ini` en tu directorio actual:
 ```bash
 [web]
-ubuntu-node1
+ansible-ubuntu
 
 [db]
-redhat-node1
+ansible-rocky
 
 [all:vars]
 ansible_user=ansible
