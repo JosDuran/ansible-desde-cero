@@ -1,0 +1,29 @@
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Instalar dependencias, Ansible, SSH y sudo
+RUN apt-get update && apt-get install -y curl ansible openssh-client sudo nano iputils-ping
+
+# Instalar Code-Server
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# Crear usuario ansible con privilegios sudo sin contraseña
+RUN useradd -m -s /bin/bash ansible && \
+    echo "ansible:ansible" | chpasswd && \
+    usermod -aG sudo ansible && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+USER ansible
+WORKDIR /home/ansible
+
+# Inyectar claves SSH y deshabilitar StrictHostKeyChecking para el lab
+RUN mkdir -p /home/ansible/.ssh
+COPY --chown=ansible:ansible ansible_key /home/ansible/.ssh/id_rsa
+COPY --chown=ansible:ansible ansible_key.pub /home/ansible/.ssh/id_rsa.pub
+RUN chmod 600 /home/ansible/.ssh/id_rsa && \
+    chmod 644 /home/ansible/.ssh/id_rsa.pub && \
+    echo "Host *\n\tStrictHostKeyChecking no\n" > /home/ansible/.ssh/config && \
+    chmod 600 /home/ansible/.ssh/config
+
+EXPOSE 8443
+CMD ["code-server", "--bind-addr", "0.0.0.0:8443", "--auth", "password", "/home/ansible/workspace"]
