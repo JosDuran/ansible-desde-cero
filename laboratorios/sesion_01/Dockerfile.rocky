@@ -1,0 +1,20 @@
+FROM geerlingguy/docker-rockylinux9-ansible:latest
+
+# Instalar SSH y sudo
+RUN dnf -y install openssh-server sudo
+
+# Crear usuario ansible
+RUN useradd -m -s /bin/bash ansible && \
+    echo "ansible:ansible" | chpasswd && \
+    usermod -aG wheel ansible && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Configurar SSH y llave pública
+RUN mkdir -p /home/ansible/.ssh
+COPY ansible_key.pub /home/ansible/.ssh/authorized_keys
+RUN chown -R ansible:ansible /home/ansible/.ssh && \
+    chmod 600 /home/ansible/.ssh/authorized_keys
+
+# Generar llaves de host requeridas por Rocky e habilitar SSH
+RUN ssh-keygen -A
+RUN systemctl enable sshd
