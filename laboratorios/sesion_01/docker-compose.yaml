@@ -1,29 +1,30 @@
+
 services:
   # ----------------------------------------------------
-  # Nodo de Control (Code-Server)
+  # Nodo de Control (Ubuntu + Code-Server + Ansible)
   # ----------------------------------------------------
   control-node:
-    image: linuxserver/code-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.control
     container_name: ansible-control
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=America/Lima
-      - PASSWORD=ansible
-      - SUDO_PASSWORD=ansible
+      - PASSWORD=ansible  # Contraseña para acceder a la web de VS Code
     volumes:
-      - ./workspace:/config/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./workspace:/home/ansible/workspace
     ports:
       - "8443:8443"
     networks:
       - ansible-net
     restart: unless-stopped
+
   # ----------------------------------------------------
-  # Nodo 1: ubuntu 22.04 (systemd + python3)
+  # Nodo 1: Ubuntu 22.04 (systemd + ssh)
   # ----------------------------------------------------
   ubuntu-node:
-    image: geerlingguy/docker-ubuntu2204-ansible:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
     container_name: ansible-ubuntu
     privileged: true
     cgroup: host
@@ -34,10 +35,12 @@ services:
       - ansible-net
 
   # ----------------------------------------------------
-  # Nodo 2: Rocky Linux 9 (systemd + python3)
+  # Nodo 2: Rocky Linux 9 (systemd + sshd)
   # ----------------------------------------------------
   rocky-node:
-    image: geerlingguy/docker-rockylinux9-ansible:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.rocky
     container_name: ansible-rocky
     privileged: true
     cgroup: host
