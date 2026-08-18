@@ -21,7 +21,7 @@ http://direccion_IP_de_la_VM:8443
 ```
 
 ### Paso 2: Crear el archivo de inventario
-Crea un archivo de texto llamado `inventory.ini` en tu directorio actual:
+Crea un archivo de texto llamado `inventario.ini` en tu directorio actual:
 ```bash
 [web]
 ubuntu-node1
