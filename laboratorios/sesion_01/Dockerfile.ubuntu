@@ -1,0 +1,19 @@
+FROM geerlingguy/docker-ubuntu2204-ansible:latest
+
+# Instalar SSH y sudo
+RUN apt-get update && apt-get install -y openssh-server sudo
+
+# Crear usuario ansible
+RUN useradd -m -s /bin/bash ansible && \
+    echo "ansible:ansible" | chpasswd && \
+    usermod -aG sudo ansible && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Configurar SSH y llave pública
+RUN mkdir -p /home/ansible/.ssh
+COPY ansible_key.pub /home/ansible/.ssh/authorized_keys
+RUN chown -R ansible:ansible /home/ansible/.ssh && \
+    chmod 600 /home/ansible/.ssh/authorized_keys
+
+# Habilitar el servicio SSH para que inicie con systemd
+RUN systemctl enable ssh
