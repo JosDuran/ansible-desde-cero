@@ -179,3 +179,50 @@ ssh ansible-rocky
 
 ¡Tu laboratorio está listo! Ya puedes crear tu archivo de inventario y comenzar a escribir playbooks.
 
+# Laboratorio 02: Configuración del Inventario y Archivo de Configuración de Ansible
+
+En esta sección, configuraremos el inventario de servidores y el archivo principal de configuración de Ansible (`ansible.cfg`). Además, solucionaremos la advertencia de seguridad relacionada con los permisos de los directorios compartidos en Docker.
+
+---
+
+## Paso 1: Crear el archivo de inventario (`inventario.ini`)
+
+En la terminal integrada de VS Code (dentro del directorio `~/workspace`), crea el archivo que definirá a qué contenedores nos vamos a conectar. Ejecuta el siguiente comando para generarlo:
+
+```bash
+cat << 'EOF' > inventario.ini
+[web]
+ansible-ubuntu
+
+[db]
+ansible-rocky
+
+[all:vars]
+ansible_user=ansible
+EOF
+
+Paso 2: Crear el archivo de configuración global (ansible.cfg)
+Para no tener que especificar el inventario con el parámetro -i cada vez que ejecutemos un comando, crearemos el archivo ansible.cfg en el mismo directorio:
+
+cat << 'EOF' > ansible.cfg
+[defaults]
+inventory = inventario.ini
+remote_user = ansible
+EOF
+
+Paso 3: Forzar la lectura de configuración (ANSIBLE_CONFIG)
+Dado que estamos trabajando dentro de un volumen compartido de Docker, Ansible detecta permisos muy abiertos (world-writable) y, por seguridad, ignora el archivo ansible.cfg.
+
+Para indicarle explícitamente a Ansible que confíe en nuestro archivo, configuraremos la variable de entorno ANSIBLE_CONFIG. Además, la añadiremos al archivo ~/.bashrc para que sea permanente cada vez que abramos una nueva terminal. Ejecuta estos dos comandos:
+
+# Aplicar para la sesión actual
+export ANSIBLE_CONFIG="/home/ansible/workspace/ansible.cfg"
+
+# Hacer la configuración permanente
+echo 'export ANSIBLE_CONFIG="/home/ansible/workspace/ansible.cfg"' >> ~/.bashrc
+
+Paso 4: Verificación del Inventario
+Ahora podemos ejecutar comandos de Ansible directamente de forma más limpia. Ejecuta el siguiente comando para verificar que Ansible detecte correctamente tus nodos:
+
+ansible all --list-hosts
+
