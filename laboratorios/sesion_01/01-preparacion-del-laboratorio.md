@@ -1,51 +1,53 @@
-# Laboratorio 01: Configuración de Nodos Administrados y Preparación para Ansible
+# Laboratorio 01: Entorno Ansible Automatizado con Docker
 
-Este laboratorio tiene como objetivo principal preparar los nodos administrados (tanto basados en Red Hat como en Ubuntu) para que Ansible pueda conectarse de forma segura mediante SSH y elevar privilegios con `sudo`.
+Este laboratorio despliega un entorno completo para Ansible (1 Nodo de Control con VS Code Web y 2 Nodos Administrados) de forma optimizada. El proceso reduce la configuración manual al mínimo, permitiéndote enfocarte en la administración.
 
 ---
 
 ## 1. Objetivos del Laboratorio
 
-* Configurar el servidor OpenSSH en los nodos administrados.
-* Crear y configurar un usuario dedicado (`ansible`) para la automatización.
-* Otorgar privilegios de administrador mediante `sudo` (grupos `wheel` o `sudo`).
+* Generar un par de claves SSH para la autenticación de Ansible.
+* Desplegar un entorno multicontenedor utilizando Docker Compose y Dockerfiles.
+* Validar la conexión SSH sin contraseña desde el nodo de control a los nodos administrados.
 
 ---
 
-## 2. Despliegue del entorno con Docker Compose
-Utiliza los comandos de Docker Compose para descargar las imágenes y levantar los contenedores en segundo plano (*detached mode*):
+## 2. Preparación y Creación de Claves SSH
 
-### Crear el archivo docker-compose.yaml
-En el servidor linux crear el archivo `docker-compose.yaml` y añadir este contenido
+Ansible necesita autenticarse en los nodos administrados. Para hacerlo de forma segura y automatizada, primero generaremos las claves SSH en tu máquina local. 
 
-```yaml
+Crea la carpeta de tu laboratorio e ingresa a ella:
+```bash
+mkdir lab-ansible && cd lab-ansible
+
+ssh-keygen -t rsa -b 4096 -f ./ansible_key -q -N ""
+
+## 3. Archivos de Configuración Docker
+En la misma carpeta lab-ansible, crea los siguientes 4 archivos que automatizarán la instalación de SSH, la creación del usuario ansible y la distribución de las claves.
+
+1. docker-compose.yaml
+Este archivo orquesta el levantamiento de los tres servidores:
+
 services:
-  # ----------------------------------------------------
-  # Nodo de Control (Code-Server)
-  # ----------------------------------------------------
   control-node:
-    image: linuxserver/code-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.control
     container_name: ansible-control
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=America/Lima
       - PASSWORD=ansible
-      - SUDO_PASSWORD=ansible
     volumes:
-      - ./workspace:/config/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./workspace:/home/ansible/workspace
     ports:
       - "8443:8443"
     networks:
       - ansible-net
     restart: unless-stopped
 
-  # ----------------------------------------------------
-  # Nodo 1: ubuntu 22.04 (systemd + python3)
-  # ----------------------------------------------------
   ubuntu-node:
-    image: geerlingguy/docker-ubuntu2204-ansible:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
     container_name: ansible-ubuntu
     privileged: true
     cgroup: host
@@ -55,11 +57,10 @@ services:
     networks:
       - ansible-net
 
-  # ----------------------------------------------------
-  # Nodo 2: Rocky Linux 9 (systemd + python3)
-  # ----------------------------------------------------
   rocky-node:
-    image: geerlingguy/docker-rockylinux9-ansible:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.rocky
     container_name: ansible-rocky
     privileged: true
     cgroup: host
@@ -72,150 +73,109 @@ services:
 networks:
   ansible-net:
     driver: bridge
-```
 
-### Crear e iniciar los contenedores:
-```bash
-docker compose up -d
-```
+2. Dockerfile.control
+Construye el nodo de control. Copia ambas claves (pública y privada).
 
-### Verificar que los contenedores están en ejecución:
-```bash
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y curl ansible openssh-client sudo nano iputils-ping
+RUN curl -fsSL [https://code-server.dev/install.sh](https://code-server.dev/install.sh) | sh
+
+RUN useradd -m -s /bin/bash ansible && \
+    echo "ansible:ansible" | chpasswd && \
+    usermod -aG sudo ansible && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+USER ansible
+WORKDIR /home/ansible
+
+# Inyectar claves SSH y deshabilitar StrictHostKeyChecking
+RUN mkdir -p /home/ansible/.ssh
+COPY --chown=ansible:ansible ansible_key /home/ansible/.ssh/id_rsa
+COPY --chown=ansible:ansible ansible_key.pub /home/ansible/.ssh/id_rsa.pub
+RUN chmod 600 /home/ansible/.ssh/id_rsa && \
+    chmod 644 /home/ansible/.ssh/id_rsa.pub && \
+    echo "Host *\n\tStrictHostKeyChecking no\n" > /home/ansible/.ssh/config && \
+    chmod 600 /home/ansible/.ssh/config
+
+EXPOSE 8443
+CMD ["code-server", "--bind-addr", "0.0.0.0:8443", "--auth", "password", "/home/ansible/workspace"]
+
+3. Dockerfile.ubuntu
+Construye el nodo administrado Ubuntu. Copia solo la clave pública.
+
+FROM geerlingguy/docker-ubuntu2204-ansible:latest
+
+RUN apt-get update && apt-get install -y openssh-server sudo
+
+RUN useradd -m -s /bin/bash ansible && \
+    echo "ansible:ansible" | chpasswd && \
+    usermod -aG sudo ansible && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+RUN mkdir -p /home/ansible/.ssh
+COPY ansible_key.pub /home/ansible/.ssh/authorized_keys
+RUN chown -R ansible:ansible /home/ansible/.ssh && \
+    chmod 600 /home/ansible/.ssh/authorized_keys
+
+RUN systemctl enable ssh
+
+4. Dockerfile.rocky
+Construye el nodo administrado Rocky Linux. Copia solo la clave pública
+
+FROM geerlingguy/docker-rockylinux9-ansible:latest
+
+RUN dnf -y install openssh-server sudo
+
+RUN useradd -m -s /bin/bash ansible && \
+    echo "ansible:ansible" | chpasswd && \
+    usermod -aG wheel ansible && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+RUN mkdir -p /home/ansible/.ssh
+COPY ansible_key.pub /home/ansible/.ssh/authorized_keys
+RUN chown -R ansible:ansible /home/ansible/.ssh && \
+    chmod 600 /home/ansible/.ssh/authorized_keys
+
+RUN ssh-keygen -A
+RUN systemctl enable sshd
+
+4. Despliegue del Laboratorio
+Una vez que tengas tu par de claves y los 4 archivos creados, levanta todo el entorno forzando la construcción de las imágenes:
+
+Bash
+docker compose up -d --build
+Comprueba que los tres servicios estén corriendo sin errores:
+
+Bash
 docker compose ps
-```
+5. Verificación de Conectividad (¡Cero configuración manual!)
+Como las imágenes ya instalaron todo y distribuyeron las claves SSH correctamente, puedes probar el entorno inmediatamente.
 
-### Ingresar a la terminal interactiva de un contenedor:
-```bash
-docker exec -it <nombre_o_id_del_contenedor> bash
-```
+1. Ingresa al entorno web de VS Code:
+Abre tu navegador web e ingresa a:
 
-> [\!TIP]
-> Si la imagen del contenedor es muy liviana (como `Alpine Linux`) y no tiene `bash`, sustitúyelo por `sh`
+Bash
+http://localhost:8443
+Contraseña: ansible
 
-## 3. Preparación de Nodos Administrados y SSH
+2. Validar la instalación de Ansible:
+Abre una terminal dentro de VS Code (Ctrl + ~). Notarás que ya eres el usuario ansible. Ejecuta:
 
-### 1. Actualizar los repositorios y paquetes
-Usa el gestor de paquetes de tu distribución para actualizar los paquetes del servidor:
-
-* **En Red Hat / Rocky Linux:**
-```bash
-dnf update && dnf upgrade -y
-```
-
-* **En Ubuntu / Debian:**
-```bash
-apt update && apt upgrade -y
-```
-
-### 2. Instalar el servidor OpenSSH y Sudo
-Instala el servidor SSH en el servidor:
-
-* **En Red Hat / Rocky Linux:**
-```bash
-dnf install openssh-server -y
-```
-
-* **En Ubuntu / Debian:**
-```bash
-apt install openssh-server -y
-```
-
-### 3. Generar las llaves de host necesarias
-Las imágenes mínimas de contenedores a menudo no traen las llaves criptográficas requeridas, lo que provoca un error al iniciar. Genéralas ejecutando:
-
-```bash
-ssh-keygen -A
-```
-
-### 4. Iniciar el servicio SSH
-**Dentro de un contenedor Docker**, debes de iniciar el demonio SSH manualmente ejecutando:
-
-* **En Red Hat / Rocky Linux:**
-```bash
-systemctl enable sshd
-systemctl start sshd
-```
-
-* **En Ubuntu / Debian:**
-```bash
-systemctl enable ssh
-systemctl start ssh
-```
-
-### 5. Validar el servicio SSH
-Ejecutar el comando:
-
-* **En Red Hat / Rocky Linux:**
-```bash
-ssystemctl status sshd
-```
-
-* **En Ubuntu / Debian:**
-```bash
-systemctl status ssh
-```
-
-```bash
-● ssh.service - OpenBSD Secure Shell server
-     Loaded: loaded (/lib/systemd/system/ssh.service; enabled; vendor preset: enabled)
-     Active: active (running) since Sun 2026-08-16 00:37:04 UTC; 1s ago
-       Docs: man:sshd(8)
-             man:sshd_config(5)
-    Process: 888 ExecStartPre=/usr/sbin/sshd -t (code=exited, status=0/SUCCESS)
-   Main PID: 889 (sshd)
-      Tasks: 1 (limit: 259)
-     Memory: 1.7M
-        CPU: 44ms
-     CGroup: /system.slice/docker-acff6d0793e5de1e1e882555a96ae05413282f19af26103f963e987d91f06708.scope/system.slice/ssh.service
-             └─889 "sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups"
-
-Aug 16 00:37:04 acff6d0793e5 systemd[1]: Starting OpenBSD Secure Shell server...
-Aug 16 00:37:04 acff6d0793e5 sshd[889]: Server listening on 0.0.0.0 port 22.
-Aug 16 00:37:04 acff6d0793e5 sshd[889]: Server listening on :: port 22.
-Aug 16 00:37:04 acff6d0793e5 systemd[1]: Started OpenBSD Secure Shell server.
-```
-
----
-
-## 4. Creación y Configuración del Usuario para Ansible
-
-### 1. Crear el usuario
-Utiliza el comando `useradd` con la opción `-m` (para que cree automáticamente su directorio personal o *home*) y `-s /bin/bash` (para asignarle la terminal bash por defecto):
-
-```bash
-useradd -m -s /bin/bash ansible
-```
-
-### 2. Asignar una contraseña
-Establece una contraseña segura (por ejemplo, `password`) para el usuario recién creado:
-
-```bash
-passwd ansible
-```
-
-### 3. Dar privilegios de administrador (`sudo`)
-Para que este usuario pueda ejecutar tareas administrativas que requieran privilegios elevados en los nodos:
-
-* **En Red Hat / Rocky Linux:**
-```bash
-usermod -aG wheel ansible
-```
-
-* **En Ubuntu / Debian:**
-```bash
-usermod -aG sudo ansible
-```
-
-## 5. Instalación de Ansible
-Para instalar Ansible en el nodo de control (`ansible-control`), ejecuta los siguientes comandos:
-
-* **En Ubuntu / Debian:**
-```bash
-sudo apt install -y ansible
-```
-
-### Verificación
-Una vez completada la instalación, confirma que Ansible quedó instalado correctamente comprobando su versión:
-```bash
+Bash
 ansible --version
-```
+3. Validar conectividad SSH automática:
+Prueba conectarte a los nodos. Al tener las claves inyectadas por Docker, no te pedirá contraseña:
+
+Bash
+ssh ansible-ubuntu
+(Escribe exit para regresar al nodo de control)
+
+Bash
+ssh ansible-rocky
+(Escribe exit para regresar al nodo de control)
+
+¡Tu laboratorio está listo! Ya puedes crear tu archivo de inventario y comenzar a escribir playbooks.
+
