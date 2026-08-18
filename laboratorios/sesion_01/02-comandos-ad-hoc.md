@@ -126,7 +126,7 @@ ansible-rocky | CHANGED | rc=0 >>
 
 **hostname:**
 ```bash
-ansible all -i inventory.ini -m command -a "hostname"
+ansible all -i inventario.ini -m command -a "hostname"
 ```
 ```bash
 ansible-ubuntu | CHANGED | rc=0 >>
